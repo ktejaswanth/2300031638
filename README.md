@@ -1,121 +1,399 @@
-# Vehicle Maintenance Scheduler & Central Telemetry Microservice (Backend Track)
+# Notification System Design Document
 
-This repository contains the complete, high-performance **Vehicle Maintenance Scheduler Microservice** alongside a unified **Centralized Telemetry Logging Middleware** connecting to the remote evaluation server.
+## Project Overview
+
+This project was developed as part of the AffordMed Backend Evaluation. The solution consists of two major backend modules:
+
+1. Vehicle Maintenance Scheduler Microservice
+2. Campus Notifications Microservice
+
+The project is implemented using Spring Boot and follows a modular architecture. A reusable Logging Middleware is integrated across all components to provide centralized logging and monitoring.
 
 ---
 
-## 1. Project Directory Structure
+# Logging Middleware
 
-Conforming exactly to the evaluation specifications, the folder structure is designed as follows:
+## Purpose
+
+The Logging Middleware was developed as a reusable component to capture important application events and send them to the AffordMed Logging API.
+
+Instead of using normal console logs, all major operations are logged through a common logging service. This helps in monitoring application behavior and debugging issues efficiently.
+
+### Example Logs
+
+* Vehicle scheduling started
+* Vehicle data fetched successfully
+* Notification created successfully
+* Invalid request received
+* Database operation failed
+
+### Middleware Usage
+
+The logging middleware is used throughout the application in:
+
+* Controllers
+* Service classes
+* API client classes
+* Exception handlers
+
+This ensures consistent logging across the entire backend application.
+
+---
+
+# Vehicle Maintenance Scheduler Microservice
+
+## Problem Statement
+
+The company manages multiple vehicle maintenance requests every day. Each maintenance task requires a specific amount of mechanic hours and contributes a certain operational impact score.
+
+Every depot has a limited number of mechanic hours available. The objective is to select the best combination of maintenance tasks that maximizes total impact while staying within the available mechanic hours.
+
+---
+
+## APIs Used
+
+### Depots API
+
+GET
+
+http://localhost:8080/api/depots
+
+This API returns depot information.
+
+Example:
+
+```json
+{
+  "ID": 1,
+  "MechanicHours": 60
+}
+```
+
+### Vehicles API
+
+GET
+
+http://localhost:8080/api/vehicles
+
+This API returns vehicle maintenance tasks.
+
+Example:
+
+```json
+{
+  "TaskID": "264e638f",
+  "Duration": 5,
+  "Impact": 10
+}
+```
+
+---
+
+## Solution Approach
+
+After analyzing the problem, it was identified as a classic 0/1 Knapsack Problem.
+
+Mapping:
+
+| Vehicle Scheduler | Knapsack Problem |
+| ----------------- | ---------------- |
+| Duration          | Weight           |
+| Impact            | Value            |
+| Mechanic Hours    | Capacity         |
+
+The algorithm evaluates different combinations of tasks and selects the combination that provides the highest total impact without exceeding the available mechanic hours.
+
+---
+
+## Why Dynamic Programming?
+
+A brute-force solution would require checking every possible combination of tasks, which becomes inefficient as the number of tasks increases.
+
+Dynamic Programming allows us to solve the problem efficiently by storing intermediate results and avoiding repeated calculations.
+
+### Time Complexity
+
+O(N × H)
+
+Where:
+
+* N = Number of maintenance tasks
+* H = Available mechanic hours
+
+---
+
+## Output
+
+For each depot, the system calculates:
+
+* Selected tasks
+* Total duration used
+* Total impact achieved
+* Remaining mechanic hours
+
+This provides an optimal maintenance schedule for each depot.
+
+---
+
+# Campus Notifications Microservice
+
+## Objective
+
+The Campus Notifications Microservice is designed to manage and deliver notifications to students.
+
+The system supports different categories of notifications such as:
+
+* Placement Notifications
+* Result Notifications
+* Event Notifications
+
+Students can view notifications, filter them, and access important updates through a centralized notification platform.
+
+---
+
+## REST APIs
+
+### Create Notification
+
+POST
+
+http://localhost:8082/api/notifications
+
+Creates a new notification.
+
+---
+
+### Get All Notifications
+
+GET
+
+http://localhost:8082/api/notifications
+
+Returns all available notifications.
+
+---
+
+### Get Notifications by Student
+
+GET
+
+http://localhost:8082/api/notifications?studentId={id}
+
+Returns notifications belonging to a specific student.
+
+---
+
+### Delete Notification
+
+DELETE
+
+http://localhost:8082/api/notifications/{id}
+
+Removes a notification from the system.
+
+---
+
+### Priority Notifications
+
+GET
+
+http://localhost:8082/api/notifications/priority
+
+Returns the highest priority notifications for display in the priority inbox.
+
+---
+
+# Database Design
+
+The notification system uses a relational database structure.
+
+## Students Table
+
+Stores student information.
+
+Fields:
+
+* id
+* name
+* email
+
+---
+
+## Notifications Table
+
+Stores notification records.
+
+Fields:
+
+* id
+* student_id
+* type
+* message
+* created_at
+* is_read
+
+---
+
+## Notification Types
+
+Stores notification categories.
+
+Examples:
+
+* Placement
+* Result
+* Event
+
+---
+
+# Stage 3 - Database Scaling and Optimization
+
+## Problem
+
+As the system grows, the database must handle:
+
+* 50,000 students
+* 500,000 notifications
+
+Without optimization, retrieving notifications becomes slower because the database must scan a large number of records.
+
+---
+
+## Indexing Strategy
+
+Indexes are added to frequently searched columns.
+
+```sql
+CREATE INDEX idx_student
+ON notifications(student_id);
+
+CREATE INDEX idx_type
+ON notifications(type);
+
+CREATE INDEX idx_read
+ON notifications(is_read);
+```
+
+### Benefits
+
+* Faster searches
+* Faster filtering
+* Reduced query execution time
+* Better overall performance
+
+---
+
+## Pagination
+
+Returning thousands of notifications in a single response is inefficient.
+
+To solve this problem, pagination is used.
+
+Example:
+
+```sql
+SELECT *
+FROM notifications
+LIMIT 20 OFFSET 0;
+```
+
+### Benefits
+
+* Lower memory consumption
+* Faster API responses
+* Better user experience
+* Improved scalability
+
+---
+
+# Stage 6 - Priority Inbox
+
+## Requirement
+
+The product team requested a Priority Inbox that displays only the most important unread notifications.
+
+Priority should be determined using:
+
+1. Notification Type
+2. Recency
+
+### Priority Weights
+
+| Type      | Weight |
+| --------- | ------ |
+| Placement | 3      |
+| Result    | 2      |
+| Event     | 1      |
+
+If two notifications have the same weight, the newer notification receives higher priority.
+
+---
+
+## Solution Approach
+
+A Priority Queue (Min Heap) was selected for this implementation.
+
+The heap continuously maintains only the Top 10 highest-priority notifications.
+
+When a new notification arrives:
+
+1. The notification is inserted into the heap.
+2. If the heap size exceeds 10, the lowest-priority notification is removed.
+3. The heap always contains only the most important notifications.
+
+---
+
+## Why Priority Queue?
+
+Sorting all notifications repeatedly becomes expensive when the dataset grows.
+
+A Priority Queue provides a more efficient solution.
+
+### Complexity Comparison
+
+Full Sorting:
+
+O(N log N)
+
+Priority Queue:
+
+O(N log K)
+
+Where:
+
+* N = Total notifications
+* K = 10
+
+Since K remains constant, the solution scales efficiently even for very large datasets.
+
+---
+
+# Project Architecture
 
 ```text
-afford medical/
-│
-├── logging_middleware/
-│   ├── LoggerService.java         # Standalone Interface
-│   ├── LogRequest.java            # Standalone DTO POJO
-│   └── LogClient.java             # Standalone HttpClient Implementation
-│
-├── vehicle_maintenance_scheduler/ # Spring Boot 3 + Maven microservice
-│   ├── pom.xml
-│   ├── src/main/java/com/affordmedical/vehiclescheduler/
-│   │   ├── controller/            # REST API endpoints (ScheduleController)
-│   │   ├── service/               # SchedulerService & LoggerServiceImpl
-│   │   ├── dto/                   # Depot, Vehicle, ScheduleResponse models
-│   │   ├── client/                # External REST client (ExternalDepotClient)
-│   │   ├── config/                # Spring configuration (AppConfig)
-│   │   └── exception/             # Global handler (GlobalExceptionHandler)
-│   └── screenshots/               # Directory for execution verification output screenshots
-│
-├── notification_system_design.md  # Detailed System Architecture and Database Scaling optimizations
-└── README.md                      # Backend manual and algorithm walkthroughs
+Client
+   |
+   v
+Spring Boot Application
+   |
+   +---- Logging Middleware
+   |
+   +---- Vehicle Maintenance Scheduler
+   |
+   +---- Campus Notifications Service
+   |
+   v
+Database / External APIs
 ```
 
----
-
-## 2. Core Features & Architecture
-
-### A. Centralized Telemetry Logging Middleware (`logging_middleware/`)
-* **Reusable Java SDK**: Fully decoupled from Spring, built inside the `logging_middleware` package using standard JDK `java.net.http.HttpClient` (Java 11+).
-* **Asynchronous Telemetry**: Sends real-time telemetry HTTP POST messages directly to the remote evaluation logs server: `http://4.224.186.213/evaluation-service/logs`.
-* **Input Validation**: Includes strict structural validation for logging level, stack, and stack-specific packages.
-* **Extensive Backend Integration**: Our Spring Boot backend extends the `LogClient` into a standard `@Service` component (`LoggerServiceImpl`), replacing standard console log lines for all key operations.
-
-### B. Spring Boot 3 Scheduler Microservice (`vehicle_maintenance_scheduler/`)
-* **Stateless Dynamic Engine**: Dynamic data model. Fetches depot capacities and vehicle task profiles dynamically *on every request* instead of utilizing local databases or persistent files.
-* **Dynamic Programming (0/1 Knapsack)**:
-  * Optimizes the daily scheduling of service requests to maximize cumulative vehicle operational impact scores within each depot's strict mechanic hours budget.
-  * Solves using classic DP table matrices ($O(N \times W)$ complexity, resolving in microseconds).
-  * Backtracks to cleanly partition items into `selected` and `unselected` vehicle arrays.
-* **Pre-Authorized Access**: Completely conforms to the revised constraints; all local endpoints are publicly accessible (no login or registration required).
-* **Remote Protected Route Integration**: Queries the external protected endpoints by securely attaching the user's `Authorization: Bearer <evaluation_token>` header:
-  * Depots: `http://4.224.186.213/evaluation-service/depots`
-  * Vehicles: `http://4.224.186.213/evaluation-service/vehicles`
+The Logging Middleware is shared by all modules and records important application events throughout the system.
 
 ---
 
-## 3. Optimization Algorithm Details
+# Conclusion
 
-The microservice models vehicle scheduling as a **0/1 Knapsack Problem** for each depot. 
-* **Knapsack Capacity ($W$)**: Depot `MechanicHours` capacity.
-* **Item Weight ($w_i$)**: Vehicle `Duration` (hours required).
-* **Item Value ($v_i$)**: Vehicle operational `Impact` score.
+This project demonstrates backend development concepts including API integration, reusable middleware design, dynamic programming, database optimization, and scalable notification processing.
 
-### Dynamic Programming Recurrence
-Let $DP[i][j]$ be the maximum operational impact score achievable with the first $i$ vehicles using a maximum of $j$ mechanic hours:
-$$DP[i][j] = \max\left(DP[i-1][j], \; DP[i-1][j - \text{Duration}_i] + \text{Impact}_i\right) \quad \text{if } j \ge \text{Duration}_i$$
-$$DP[i][j] = DP[i-1][j] \quad \text{otherwise}$$
+The Vehicle Maintenance Scheduler uses Dynamic Programming to generate optimal maintenance schedules, while the Campus Notifications Microservice provides efficient notification management and priority-based notification retrieval.
 
-### Selected Set Backtracking
-After building the matrix table, the algorithm backtracks from $DP[N][W]$:
-* If $DP[i][j] \ne DP[i-1][j]$, then Vehicle $i$ is selected. We decrement remaining capacity $j \leftarrow j - \text{Duration}_i$, add Vehicle $i$ to the **selected** set, and proceed to vehicle $i-1$.
-* Otherwise, Vehicle $i$ is not selected and is pushed to the **deferred** (unselected) set.
-
----
-
-## 4. Run Manual (How to Build and Run)
-
-### Prerequisites
-* **Java**: JDK 21+
-* **Maven**: (Utilizes the built-in Maven Wrapper `mvnw`)
-
-### Step 1: Compile the Microservice
-Open a terminal in the project directory and verify compilation:
-```bash
-cd vehicle_maintenance_scheduler
-# Clean and compile code
-./mvnw clean compile
-```
-
-### Step 2: Run the Spring Boot Application
-```bash
-# Launch Spring Boot REST API
-./mvnw spring-boot:run
-```
-The server will boot up and bind to port `8080`.
-
-### Step 3: Audit Optimized Output Endpoints
-You can verify the solved Knapsack schedules by hitting the endpoints using a browser, Postman, or `curl`:
-
-1. **Examine Optimized Schedules (Knapsack output per Depot)**:
-   ```bash
-   curl http://localhost:8080/api/schedule
-   ```
-2. **Examine Raw Fetched Depots Data**:
-   ```bash
-   curl http://localhost:8080/api/depots
-   ```
-3. **Examine Raw Fetched Vehicles/Tasks Data**:
-   ```bash
-   curl http://localhost:8080/api/vehicles
-   ```
-
----
-
-## 5. Exposed API Endpoints (CORS-Enabled)
-
-| HTTP Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| **GET** | `/api/schedule` | Solves and returns optimized vehicle allocations for all depots |
-| **GET** | `/api/depots` | Fetches raw depot data from the remote evaluation service |
-| **GET** | `/api/vehicles` | Fetches raw vehicle data from the remote evaluation service |
+The final solution is modular, maintainable, scalable, and capable of handling increasing amounts of data and user activity efficiently.
